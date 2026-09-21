@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>منصة الاختبارات التفاعلية</title>
+  <style>
+    body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f4f7f6; margin: 0; padding: 20px; direction: rtl; }
+    .card { background: white; max-width: 650px; margin: 20px auto; padding: 25px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); }
+    h2 { color: #2c3e50; text-align: center; }
+    label { font-weight: bold; display: block; margin-top: 15px; color: #34495e; }
+    select, button { width: 100%; padding: 12px; margin-top: 8px; border-radius: 8px; border: 1px solid #ccc; font-size: 16px; }
+    button { background-color: #27ae60; color: white; border: none; font-weight: bold; cursor: pointer; transition: 0.3s; margin-top: 20px; }
+    button:hover { background-color: #219150; }
+    #timer { font-size: 20px; font-weight: bold; color: #e74c3c; text-align: center; margin-bottom: 15px; padding: 10px; background: #fadbd8; border-radius: 8px; }
+    .question-block { border-bottom: 1px solid #eee; padding-bottom: 15px; margin-bottom: 15px; }
+    .option-label { display: block; font-weight: normal; margin: 5px 0; cursor: pointer; }
+    .hidden { display: none; }
+    .result-box { text-align: center; font-size: 22px; color: #2980b9; font-weight: bold; }
+  </style>
+</head>
+<body>
+
+  <!-- صفحة اختيار البيانات -->
+  <div id="setup-page" class="card">
+    <h2>منصة الاختيارات والاختبارات</h2>
+    <label>السنة الدراسية:</label>
+    <select id="year-select"><option value="">جاري التحميل...</option></select>
+
+    <label>المادة:</label>
+    <select id="subject-select"><option value="">جاري التحميل...</option></select>
+
+    <label>الدرس:</label>
+    <select id="lesson-select"><option value="كل الدروس">كل الدروس</option></select>
+
+    <label>مستوى الصعوبة:</label>
+    <select id="difficulty-select">
+      <option value="سهل">سهل (5 أسئلة - 5 دقائق)</option>
+      <option value="متوسط">متوسط (10 أسئلة - 10 دقائق)</option>
+      <option value="صعب">صعب (15 سؤال - 15 دقيقة)</option>
+    </select>
+
+    <button onclick="startQuiz()">ابدأ الاختبار الآن</button>
+  </div>
+
+  <!-- صفحة الاختبار -->
+  <div id="quiz-page" class="card hidden">
+    <div id="timer">الوقت المتبقي: <span id="time-display">00:00</span></div>
+    <form id="quiz-form"></form>
+    <button onclick="submitQuiz()">إنهاء وتصحيح الاختبار</button>
+  </div>
+
+  <!-- صفحة النتيجة -->
+  <div id="result-page" class="card hidden">
+    <h2>نتيجة الاختبار</h2>
+    <div id="result-text" class="result-box"></div>
+    <button onclick="location.reload()">إعادة الاختبار</button>
+  </div>
+
+  <script>
+    // ضع رابط Apps Script هنا
+    const API_URL = "https://script.google.com/macros/s/AKfycbx59HiqO_hyZmeaud4CK330uRgmXcJvQtZdVZdNOXtApFWd4B8wO1wjYmconWKtcu50/exec"; 
+
+    let timerInterval;
+    let questionsData = [];
+
+    // جلب القوائم عند فتح الصفحة
+    window.onload = function() {
+      fetch(`${API_URL}?action=getFilters`)
+        .then(res => res.json())
+        .then(data => {
+          populateSelect('year-select', data.years);
+          populateSelect('subject-select', data.subjects);
+          populateSelect('lesson-select', data.lessons, true);
+        });
+    };
+
+    function populateSelect(id, items, keepDefault = false) {
+      const select = document.getElementById(id);
+      select.innerHTML = keepDefault ? '<option value="كل الدروس">كل الدروس</option>' : '';
+      items.forEach(item => {
+        select.innerHTML += `<option value="${item}">${item}</option>`;
+      });
+    }
+
+    function startQuiz() {
+      const year = document.getElementById('year-select').value;
+      const subject = document.getElementById('subject-select').value;
+      const lesson = document.getElementById('lesson-select').value;
+      const difficulty = document.getElementById('difficulty-select').value;
+
+      fetch(`${API_URL}?action=getQuiz&year=${encodeURIComponent(year)}&subject=${encodeURIComponent(subject)}&lesson=${encodeURIComponent(lesson)}&difficulty=${encodeURIComponent(difficulty)}`)
+        .then(res => res.json())
+        .then(data => {
+          if (!data.questions || data.questions.length === 0) {
+            alert('لا توجد أسئلة مطابقة للشروط المختارة!');
+            return;
+          }
+          questionsData = data.questions;
+          renderQuiz(data.questions);
+          startTimer(data.timeInSeconds);
+
+          document.getElementById('setup-page').classList.add('hidden');
+          document.getElementById('quiz-page').classList.remove('hidden');
+        });
+    }
+
+    function renderQuiz(questions) {
+      const form = document.getElementById('quiz-form');
+      form.innerHTML = '';
+      questions.forEach((q, index) => {
+        let optionsHTML = '';
+        q.options.forEach(opt => {
+          optionsHTML += `
+            <label class="option-label">
+              <input type="radio" name="q_${index}" value="${opt}"> ${opt}
+            </label>`;
+        });
+        form.innerHTML += `
+          <div class="question-block">
+            <p><strong>${index + 1}: ${q.question}</strong></p>
+            ${optionsHTML}
+          </div>`;
+      });
+    }
+
+    function startTimer(seconds) {
+      let timeLeft = seconds;
+      const timeDisplay = document.getElementById('time-display');
+      
+      timerInterval = setInterval(() => {
+        let minutes = Math.floor(timeLeft / 60);
+        let secs = timeLeft % 60;
+        timeDisplay.textContent = `${minutes}:${secs < 10 ? '0' : ''}${secs}`;
+
+        if (timeLeft <= 0) {
+          clearInterval(timerInterval);
+          alert('انتهى الوقت المخصص للاختبار!');
+          submitQuiz();
+        }
+        timeLeft--;
+      }, 1000);
+    }
+
+    function submitQuiz() {
+      clearInterval(timerInterval);
+      let score = 0;
+
+      questionsData.forEach((q, index) => {
+        const selected = document.querySelector(`input[name="q_${index}"]:checked`);
+        if (selected && selected.value === q.correct) {
+          score++;
+        }
+      });
+
+      document.getElementById('quiz-page').classList.add('hidden');
+      document.getElementById('result-page').classList.remove('hidden');
+      document.getElementById('result-text').textContent = `حصلت على ${score} من ${questionsData.length}`;
+    }
+  </script>
+</body>
+</html>
